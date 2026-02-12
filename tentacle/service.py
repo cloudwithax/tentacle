@@ -361,7 +361,7 @@ class TentacleService:
                 },
             )
             try:
-                await self.lidarr.rescan_artist(artist_id)
+                await self.lidarr.rescan_artist(artist_id, artist_path=artist_path)
                 await asyncio.sleep(2)
                 await self.lidarr.rename_artist_files(artist_id)
             except Exception as e:

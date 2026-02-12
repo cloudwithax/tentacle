@@ -51,12 +51,21 @@ class LidarrClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def get_wanted_missing(self, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+    async def get_wanted_missing(
+        self, page: int = 1, page_size: int = 50
+    ) -> dict[str, Any]:
         """fetch wanted/missing albums."""
-        log.info("fetching wanted/missing", extra={"page": page, "page_size": page_size})
+        log.info(
+            "fetching wanted/missing", extra={"page": page, "page_size": page_size}
+        )
         return await self._get(
             "/api/v1/wanted/missing",
-            params={"page": page, "pageSize": page_size, "sortKey": "albums.title", "sortDirection": "ascending"},
+            params={
+                "page": page,
+                "pageSize": page_size,
+                "sortKey": "albums.title",
+                "sortDirection": "ascending",
+            },
         )
 
     async def get_all_wanted_missing(self) -> list[dict[str, Any]]:
@@ -86,15 +95,29 @@ class LidarrClient:
         """get artist info by id."""
         return await self._get(f"/api/v1/artist/{artist_id}")
 
-    async def rescan_artist(self, artist_id: int) -> dict[str, Any]:
-        """trigger a rescan for an artist."""
-        log.info("triggering rescan", extra={"artist_id": artist_id})
-        return await self._post("/api/v1/command", json={"name": "RescanArtist", "artistId": artist_id})
+    async def rescan_artist(
+        self, artist_id: int, artist_path: str | None = None
+    ) -> dict[str, Any]:
+        """trigger a rescan for an artist via RescanFolders command."""
+        log.info(
+            "triggering rescan", extra={"artist_id": artist_id, "path": artist_path}
+        )
+        payload: dict[str, Any] = {
+            "name": "RescanFolders",
+            "artistIds": [artist_id],
+            "filter": "Matched",
+            "addNewArtists": False,
+        }
+        if artist_path:
+            payload["folders"] = [artist_path]
+        return await self._post("/api/v1/command", json=payload)
 
     async def rename_artist_files(self, artist_id: int) -> dict[str, Any]:
         """trigger rename for an artist's files."""
         log.info("triggering rename", extra={"artist_id": artist_id})
-        return await self._post("/api/v1/command", json={"name": "RenameArtistFiles", "artistId": artist_id})
+        return await self._post(
+            "/api/v1/command", json={"name": "RenameArtist", "artistIds": [artist_id]}
+        )
 
     async def update_track_file(self, track_file: dict[str, Any]) -> dict[str, Any]:
         """update track file info."""
