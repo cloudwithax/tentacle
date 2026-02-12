@@ -1,0 +1,21 @@
+services:
+  tentacle:
+    build:
+      context: .
+      args:
+        - TENTACLE_LIDARR_URL=http://lidarr:8686
+        - TENTACLE_LIDARR_API_KEY=
+        - TENTACLE_DOWNLOAD_PATH=/music
+        - TENTACLE_DOWNLOAD_QUALITY=LOSSLESS
+        - TENTACLE_SERVICE_SCAN_INTERVAL_MINUTES=15
+    container_name: tentacle
+    restart: unless-stopped
+    volumes:
+      - ./config.yml:/config/config.yml:ro
+      - /path/to/music:/music
+    environment:
+      - TENTACLE_LIDARR_URL=http://lidarr:8686
+      - TENTACLE_LIDARR_API_KEY=
+      - TENTACLE_DOWNLOAD_PATH=/music
+      - TENTACLE_DOWNLOAD_QUALITY=LOSSLESS
+      - TENTACLE_SERVICE_SCAN_INTERVAL_MINUTES=15

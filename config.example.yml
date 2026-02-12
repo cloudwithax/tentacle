@@ -1,0 +1,16 @@
+lidarr:
+  url: "http://localhost:8686"
+  api_key: "your-api-key-here"
+
+download:
+  path: "/music"
+  quality: "LOSSLESS"  # HI_RES_LOSSLESS, LOSSLESS, HIGH, LOW
+
+service:
+  scan_interval_minutes: 15
+  max_retries: 3
+  rate_limit_delay: 1.0
+  max_concurrent_downloads: 25
+
+matching:
+  min_confidence: 0.80

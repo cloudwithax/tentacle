@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+*.flac
+*.m4a
+*.lrc
+config.yml
+tentacle_state.json
