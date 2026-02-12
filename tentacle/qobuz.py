@@ -30,6 +30,7 @@ QUALITY_FALLBACK_ORDER = ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"]
 @dataclass
 class QobuzTrack:
     """a qobuz track result."""
+
     id: int
     title: str
     artist: str
@@ -38,6 +39,7 @@ class QobuzTrack:
     track_number: int
     disc_number: int
     album_id: str
+    explicit: bool = False
 
 
 class QobuzClient:
@@ -104,10 +106,15 @@ class QobuzClient:
                 resp = await client.get(url, params=params, headers=headers)
 
                 if resp.status_code == 429:
-                    delay = self.rate_limit_delay * (2 ** attempt)
-                    log.warning("rate limited, backing off", extra={
-                        "instance": instance, "delay": delay, "attempt": attempt + 1,
-                    })
+                    delay = self.rate_limit_delay * (2**attempt)
+                    log.warning(
+                        "rate limited, backing off",
+                        extra={
+                            "instance": instance,
+                            "delay": delay,
+                            "attempt": attempt + 1,
+                        },
+                    )
                     await asyncio.sleep(delay)
                     continue
 
@@ -120,29 +127,43 @@ class QobuzClient:
                 body = resp.json()
 
                 if not body.get("success", False):
-                    log.error("api returned success=false", extra={
-                        "instance": instance, "path": path,
-                    })
+                    log.error(
+                        "api returned success=false",
+                        extra={
+                            "instance": instance,
+                            "path": path,
+                        },
+                    )
                     raise ValueError(f"qobuz api error on {path}")
 
                 return body.get("data", body)
 
             except httpx.HTTPStatusError as e:
-                log.error("http error from instance", extra={
-                    "instance": instance, "status": e.response.status_code, "attempt": attempt + 1,
-                })
+                log.error(
+                    "http error from instance",
+                    extra={
+                        "instance": instance,
+                        "status": e.response.status_code,
+                        "attempt": attempt + 1,
+                    },
+                )
                 self._demote_instance(instance)
                 last_exc = e
 
             except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
-                log.error("connection error", extra={
-                    "instance": instance, "error": str(e), "attempt": attempt + 1,
-                })
+                log.error(
+                    "connection error",
+                    extra={
+                        "instance": instance,
+                        "error": str(e),
+                        "attempt": attempt + 1,
+                    },
+                )
                 self._demote_instance(instance)
                 last_exc = e
 
             if attempt < self.max_retries - 1:
-                delay = self.rate_limit_delay * (2 ** attempt)
+                delay = self.rate_limit_delay * (2**attempt)
                 await asyncio.sleep(delay)
 
         raise ConnectionError(f"all {self.max_retries} attempts failed") from last_exc
@@ -208,13 +229,21 @@ class QobuzClient:
                 )
                 url = data.get("url", "")
                 if url:
-                    log.info("got stream url", extra={
-                        "track_id": track_id, "quality": q,
-                    })
+                    log.info(
+                        "got stream url",
+                        extra={
+                            "track_id": track_id,
+                            "quality": q,
+                        },
+                    )
                     return url
-                log.warning("empty url in response", extra={
-                    "track_id": track_id, "quality": q,
-                })
+                log.warning(
+                    "empty url in response",
+                    extra={
+                        "track_id": track_id,
+                        "quality": q,
+                    },
+                )
             except (ConnectionError, KeyError, ValueError) as e:
                 if q == "LOW":
                     raise
@@ -242,7 +271,9 @@ class QobuzClient:
         # composer
         if "composer" in track_data:
             comp = track_data["composer"]
-            meta["composer"] = comp.get("name", "") if isinstance(comp, dict) else str(comp)
+            meta["composer"] = (
+                comp.get("name", "") if isinstance(comp, dict) else str(comp)
+            )
 
         # performers string
         if "performers" in track_data:
@@ -263,7 +294,9 @@ class QobuzClient:
         if isinstance(album, dict):
             if "label" in album:
                 label = album["label"]
-                meta["label"] = label.get("name", "") if isinstance(label, dict) else str(label)
+                meta["label"] = (
+                    label.get("name", "") if isinstance(label, dict) else str(label)
+                )
             if "genres_list" in album:
                 meta["genre"] = album["genres_list"]
             if "image" in album:
@@ -290,7 +323,11 @@ class QobuzClient:
             artist_name = perf.get("name", "") if isinstance(perf, dict) else str(perf)
         elif "artist" in data:
             artist_obj = data["artist"]
-            artist_name = artist_obj.get("name", "") if isinstance(artist_obj, dict) else str(artist_obj)
+            artist_name = (
+                artist_obj.get("name", "")
+                if isinstance(artist_obj, dict)
+                else str(artist_obj)
+            )
 
         album_name = ""
         album_id = ""
@@ -302,6 +339,10 @@ class QobuzClient:
             else:
                 album_name = str(album_obj)
 
+        # qobuz uses "parental_warning" for explicit flag
+        parental = data.get("parental_warning", False)
+        is_explicit = bool(parental) and parental not in (0, "0", "false", False)
+
         return QobuzTrack(
             id=int(data.get("id", 0)),
             title=data.get("title", ""),
@@ -311,4 +352,5 @@ class QobuzClient:
             track_number=int(data.get("track_number", 1)),
             disc_number=int(data.get("media_number", data.get("disc_number", 1))),
             album_id=album_id,
+            explicit=is_explicit,
         )

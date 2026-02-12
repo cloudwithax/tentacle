@@ -11,7 +11,10 @@ from typing import Any
 
 from tentacle.config import Config
 from tentacle.downloader import (
-    build_track_path, download_from_source, get_extension_for_quality, _fetch_cover_art,
+    build_track_path,
+    download_from_source,
+    get_extension_for_quality,
+    _fetch_cover_art,
 )
 from tentacle.lidarr import LidarrClient
 from tentacle.matcher import UnifiedTrack, match_album_tracks
@@ -27,8 +30,8 @@ class _TokenBucket:
     """async token bucket rate limiter — controls req/s without blocking the loop."""
 
     def __init__(self, rate: float, burst: int) -> None:
-        self._rate = rate        # tokens per second
-        self._burst = burst      # max tokens
+        self._rate = rate  # tokens per second
+        self._burst = burst  # max tokens
         self._tokens = float(burst)
         self._last = 0.0
         self._lock = asyncio.Lock()
@@ -36,6 +39,7 @@ class _TokenBucket:
     async def acquire(self) -> None:
         """wait until a token is available."""
         import time
+
         async with self._lock:
             now = time.monotonic()
             if self._last:
@@ -72,8 +76,8 @@ class TentacleService:
         # concurrency controls
         self._dl_semaphore = asyncio.Semaphore(config.service.max_concurrent_downloads)
         self._rate_limiters: dict[str, _TokenBucket] = {
-            "tidal": _TokenBucket(rate=5.0, burst=8),    # 5 req/s, burst of 8
-            "qobuz": _TokenBucket(rate=3.0, burst=5),    # 3 req/s, burst of 5
+            "tidal": _TokenBucket(rate=5.0, burst=8),  # 5 req/s, burst of 8
+            "qobuz": _TokenBucket(rate=3.0, burst=5),  # 3 req/s, burst of 5
         }
 
     def _load_state(self) -> None:
@@ -82,7 +86,9 @@ class TentacleService:
             try:
                 data = json.loads(self._state_path.read_text())
                 self._attempted = set(data.get("attempted", []))
-                log.info("loaded state", extra={"attempted_count": len(self._attempted)})
+                log.info(
+                    "loaded state", extra={"attempted_count": len(self._attempted)}
+                )
             except (json.JSONDecodeError, OSError) as e:
                 log.warning("failed to load state", extra={"error": str(e)})
 
@@ -90,9 +96,13 @@ class TentacleService:
         """persist attempted track ids."""
         try:
             self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            self._state_path.write_text(json.dumps({
-                "attempted": list(self._attempted),
-            }))
+            self._state_path.write_text(
+                json.dumps(
+                    {
+                        "attempted": list(self._attempted),
+                    }
+                )
+            )
         except OSError as e:
             log.warning("failed to save state", extra={"error": str(e)})
 
@@ -108,13 +118,17 @@ class TentacleService:
 
         self._load_state()
 
-        log.info("tentacle service starting", extra={
-            "lidarr_url": self.config.lidarr.url,
-            "quality": self.config.download.quality,
-            "interval_minutes": self.config.service.scan_interval_minutes,
-            "once": once,
-            "sources": "tidal+qobuz",
-        })
+        log.info(
+            "tentacle service starting",
+            extra={
+                "lidarr_url": self.config.lidarr.url,
+                "quality": self.config.download.quality,
+                "interval_minutes": self.config.service.scan_interval_minutes,
+                "once": once,
+                "source_priority": self.config.matching.source_priority,
+                "prefer_explicit": self.config.matching.prefer_explicit,
+            },
+        )
 
         # rank mirrors by latency (pacman-style)
         log.info("ranking mirrors...")
@@ -131,7 +145,10 @@ class TentacleService:
                     log.info("single run complete, exiting")
                     break
 
-                log.info("sleeping", extra={"minutes": self.config.service.scan_interval_minutes})
+                log.info(
+                    "sleeping",
+                    extra={"minutes": self.config.service.scan_interval_minutes},
+                )
                 try:
                     await asyncio.wait_for(
                         self._shutdown.wait(),
@@ -178,13 +195,18 @@ class TentacleService:
         artist_obj = album_data.get("artist", {})
         if artist_obj:
             artist_id = artist_obj.get("id", 0)
-            artist_name = artist_obj.get("artistName", artist_obj.get("name", "Unknown Artist"))
+            artist_name = artist_obj.get(
+                "artistName", artist_obj.get("name", "Unknown Artist")
+            )
             artist_path = artist_obj.get("path", "")
 
         # fallback: build artist path from download root if lidarr didn't provide one
         if not artist_path:
             artist_path = str(Path(self.config.download.path) / artist_name)
-            log.warning("no artist path from lidarr, using fallback", extra={"path": artist_path})
+            log.warning(
+                "no artist path from lidarr, using fallback",
+                extra={"path": artist_path},
+            )
 
         # extract release year from album data
         release_year = ""
@@ -192,17 +214,22 @@ class TentacleService:
         if release_date and len(release_date) >= 4:
             release_year = release_date[:4]
 
-        log.info("processing album", extra={
-            "album_id": album_id,
-            "album": album_title,
-            "artist": artist_name,
-        })
+        log.info(
+            "processing album",
+            extra={
+                "album_id": album_id,
+                "album": album_title,
+                "artist": artist_name,
+            },
+        )
 
         # get tracks for this album
         try:
             tracks = await self.lidarr.get_tracks(album_id)
         except Exception as e:
-            log.error("failed to get tracks", extra={"album_id": album_id, "error": str(e)})
+            log.error(
+                "failed to get tracks", extra={"album_id": album_id, "error": str(e)}
+            )
             return
 
         if not tracks:
@@ -227,11 +254,14 @@ class TentacleService:
             log.info("no pending tracks for album", extra={"album": album_title})
             return
 
-        log.info("matching tracks", extra={
-            "album": album_title,
-            "pending": len(pending_tracks),
-            "total": len(tracks),
-        })
+        log.info(
+            "matching tracks",
+            extra={
+                "album": album_title,
+                "pending": len(pending_tracks),
+                "total": len(tracks),
+            },
+        )
 
         # match tracks
         matches = await match_album_tracks(
@@ -241,6 +271,8 @@ class TentacleService:
             pending_tracks,
             min_confidence=self.config.matching.min_confidence,
             qobuz=self.qobuz,
+            prefer_explicit=self.config.matching.prefer_explicit,
+            source_priority=self.config.matching.source_priority,
         )
 
         if not matches:
@@ -251,7 +283,10 @@ class TentacleService:
             self._save_state()
             return
 
-        log.info("matched tracks", extra={"matched": len(matches), "total": len(pending_tracks)})
+        log.info(
+            "matched tracks",
+            extra={"matched": len(matches), "total": len(pending_tracks)},
+        )
 
         # build download jobs
         jobs: list[tuple[int, UnifiedTrack, Path]] = []
@@ -277,17 +312,26 @@ class TentacleService:
             self._save_state()
             return
 
-        log.info("downloading tracks", extra={
-            "count": len(jobs),
-            "max_concurrent": self.config.service.max_concurrent_downloads,
-        })
+        log.info(
+            "downloading tracks",
+            extra={
+                "count": len(jobs),
+                "max_concurrent": self.config.service.max_concurrent_downloads,
+            },
+        )
 
         # fan out downloads with semaphore + rate limiting
         results = await asyncio.gather(
             *(
                 self._download_worker(
-                    album_id, lidarr_track_id, matched_track, dest,
-                    artist_name, album_title, release_year, len(tracks),
+                    album_id,
+                    lidarr_track_id,
+                    matched_track,
+                    dest,
+                    artist_name,
+                    album_title,
+                    release_year,
+                    len(tracks),
                 )
                 for lidarr_track_id, matched_track, dest in jobs
             ),
@@ -296,17 +340,26 @@ class TentacleService:
 
         downloaded = sum(1 for r in results if r is True)
         failed = sum(1 for r in results if r is not True)
-        log.info("batch complete", extra={
-            "downloaded": downloaded, "failed": failed, "album": album_title,
-        })
+        log.info(
+            "batch complete",
+            extra={
+                "downloaded": downloaded,
+                "failed": failed,
+                "album": album_title,
+            },
+        )
 
         self._save_state()
 
         # trigger lidarr rescan if we downloaded anything
         if downloaded > 0 and artist_id:
-            log.info("triggering lidarr rescan", extra={
-                "artist_id": artist_id, "downloaded": downloaded,
-            })
+            log.info(
+                "triggering lidarr rescan",
+                extra={
+                    "artist_id": artist_id,
+                    "downloaded": downloaded,
+                },
+            )
             try:
                 await self.lidarr.rescan_artist(artist_id)
                 await asyncio.sleep(2)
@@ -365,22 +418,32 @@ class TentacleService:
                     max_retries=self.config.service.max_retries,
                 )
 
-                log.info("downloaded", extra={
-                    "title": track.title,
-                    "source": track.source,
-                    "has_lyrics": bool(metadata.get("lyrics")),
-                    "has_cover": bool(metadata.get("cover_data")),
-                })
+                log.info(
+                    "downloaded",
+                    extra={
+                        "title": track.title,
+                        "source": track.source,
+                        "has_lyrics": bool(metadata.get("lyrics")),
+                        "has_cover": bool(metadata.get("cover_data")),
+                    },
+                )
                 return True
 
             except Exception as e:
-                log.error("download failed", extra={
-                    "track": track.title, "source": track.source, "error": str(e),
-                })
+                log.error(
+                    "download failed",
+                    extra={
+                        "track": track.title,
+                        "source": track.source,
+                        "error": str(e),
+                    },
+                )
                 return False
 
     async def _enrich_metadata(
-        self, track: UnifiedTrack, metadata: dict[str, Any],
+        self,
+        track: UnifiedTrack,
+        metadata: dict[str, Any],
     ) -> dict[str, Any]:
         """fetch lyrics, cover art, and rich metadata from the track's source."""
 
@@ -392,7 +455,9 @@ class TentacleService:
         return metadata
 
     async def _enrich_from_tidal(
-        self, track: UnifiedTrack, metadata: dict[str, Any],
+        self,
+        track: UnifiedTrack,
+        metadata: dict[str, Any],
     ) -> dict[str, Any]:
         """pull lyrics, cover art, ISRC, copyright, replay gain from tidal."""
 
@@ -431,7 +496,9 @@ class TentacleService:
         return metadata
 
     async def _enrich_from_qobuz(
-        self, track: UnifiedTrack, metadata: dict[str, Any],
+        self,
+        track: UnifiedTrack,
+        metadata: dict[str, Any],
     ) -> dict[str, Any]:
         """pull rich metadata and cover art from qobuz (no lyrics endpoint available)."""
 
@@ -442,7 +509,7 @@ class TentacleService:
                 if album_data:
                     tracks_list = album_data.get("tracks", album_data.get("items", []))
                     # find our track in the album for per-track metadata
-                    for t in (tracks_list if isinstance(tracks_list, list) else []):
+                    for t in tracks_list if isinstance(tracks_list, list) else []:
                         t_obj = t.get("item", t) if isinstance(t, dict) else t
                         if isinstance(t_obj, dict) and t_obj.get("id") == track.id:
                             rich = QobuzClient.extract_rich_metadata(t_obj)

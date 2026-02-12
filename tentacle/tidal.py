@@ -38,6 +38,7 @@ QUALITY_FALLBACK_ORDER = ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"]
 @dataclass
 class StreamInfo:
     """parsed stream info from tidal api."""
+
     url: str
     codec: str
     mime_type: str
@@ -48,6 +49,7 @@ class StreamInfo:
 @dataclass
 class TidalTrack:
     """a tidal track result."""
+
     id: int
     title: str
     artist: str
@@ -56,6 +58,7 @@ class TidalTrack:
     track_number: int
     disc_number: int
     album_id: int
+    explicit: bool = False
 
 
 class TidalClient:
@@ -112,10 +115,15 @@ class TidalClient:
                 resp = await client.get(url, params=params)
 
                 if resp.status_code == 429:
-                    delay = self.rate_limit_delay * (2 ** attempt)
-                    log.warning("rate limited, backing off", extra={
-                        "instance": instance, "delay": delay, "attempt": attempt + 1,
-                    })
+                    delay = self.rate_limit_delay * (2**attempt)
+                    log.warning(
+                        "rate limited, backing off",
+                        extra={
+                            "instance": instance,
+                            "delay": delay,
+                            "attempt": attempt + 1,
+                        },
+                    )
                     await asyncio.sleep(delay)
                     continue
 
@@ -128,21 +136,31 @@ class TidalClient:
                 return resp.json()
 
             except httpx.HTTPStatusError as e:
-                log.error("http error from instance", extra={
-                    "instance": instance, "status": e.response.status_code, "attempt": attempt + 1,
-                })
+                log.error(
+                    "http error from instance",
+                    extra={
+                        "instance": instance,
+                        "status": e.response.status_code,
+                        "attempt": attempt + 1,
+                    },
+                )
                 self._demote_instance(instance)
                 last_exc = e
 
             except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
-                log.error("connection error", extra={
-                    "instance": instance, "error": str(e), "attempt": attempt + 1,
-                })
+                log.error(
+                    "connection error",
+                    extra={
+                        "instance": instance,
+                        "error": str(e),
+                        "attempt": attempt + 1,
+                    },
+                )
                 self._demote_instance(instance)
                 last_exc = e
 
             if attempt < self.max_retries - 1:
-                delay = self.rate_limit_delay * (2 ** attempt)
+                delay = self.rate_limit_delay * (2**attempt)
                 await asyncio.sleep(delay)
 
         raise ConnectionError(f"all {self.max_retries} attempts failed") from last_exc
@@ -151,26 +169,52 @@ class TidalClient:
         """search for tracks by query string."""
         log.info("searching tracks", extra={"query": query})
         data = await self._request("/search/", params={"s": query})
-        return data if isinstance(data, list) else data.get("items", data.get("tracks", [data] if isinstance(data, dict) else []))
+        return (
+            data
+            if isinstance(data, list)
+            else data.get(
+                "items", data.get("tracks", [data] if isinstance(data, dict) else [])
+            )
+        )
 
     async def search_albums(self, query: str) -> list[dict[str, Any]]:
         """search for albums."""
         log.info("searching albums", extra={"query": query})
         data = await self._request("/search/", params={"al": query})
-        return data if isinstance(data, list) else data.get("items", data.get("albums", [data] if isinstance(data, dict) else []))
+        return (
+            data
+            if isinstance(data, list)
+            else data.get(
+                "items", data.get("albums", [data] if isinstance(data, dict) else [])
+            )
+        )
 
     async def search_artists(self, query: str) -> list[dict[str, Any]]:
         """search for artists."""
         data = await self._request("/search/", params={"a": query})
-        return data if isinstance(data, list) else data.get("items", data.get("artists", [data] if isinstance(data, dict) else []))
+        return (
+            data
+            if isinstance(data, list)
+            else data.get(
+                "items", data.get("artists", [data] if isinstance(data, dict) else [])
+            )
+        )
 
-    async def get_track_stream(self, track_id: int, quality: str = "LOSSLESS") -> StreamInfo:
+    async def get_track_stream(
+        self, track_id: int, quality: str = "LOSSLESS"
+    ) -> StreamInfo:
         """get stream info for a track, with quality fallback."""
-        start_idx = QUALITY_FALLBACK_ORDER.index(quality) if quality in QUALITY_FALLBACK_ORDER else 1
+        start_idx = (
+            QUALITY_FALLBACK_ORDER.index(quality)
+            if quality in QUALITY_FALLBACK_ORDER
+            else 1
+        )
 
         for q in QUALITY_FALLBACK_ORDER[start_idx:]:
             try:
-                data = await self._request("/track/", params={"id": track_id, "quality": q})
+                data = await self._request(
+                    "/track/", params={"id": track_id, "quality": q}
+                )
                 return self._parse_stream_info(data)
             except (ConnectionError, KeyError, ValueError) as e:
                 if q == "LOW":
@@ -191,15 +235,22 @@ class TidalClient:
                 data = data[0] if data else {}
             return data
         except Exception as e:
-            log.debug("no lyrics available", extra={"track_id": track_id, "error": str(e)})
+            log.debug(
+                "no lyrics available", extra={"track_id": track_id, "error": str(e)}
+            )
             return None
 
     async def get_track_info(self, track_id: int) -> dict[str, Any] | None:
         """fetch full track metadata including ISRC, copyright, replay gain etc."""
         try:
-            return await self._request("/track/", params={"id": track_id, "quality": "LOSSLESS"})
+            return await self._request(
+                "/track/", params={"id": track_id, "quality": "LOSSLESS"}
+            )
         except Exception as e:
-            log.debug("failed to get track info", extra={"track_id": track_id, "error": str(e)})
+            log.debug(
+                "failed to get track info",
+                extra={"track_id": track_id, "error": str(e)},
+            )
             return None
 
     @staticmethod
@@ -220,7 +271,11 @@ class TidalClient:
             raise ValueError("no manifest in track response")
 
         manifest_raw = base64.b64decode(manifest_b64).decode("utf-8", errors="replace")
-        is_dash = "mpd" in mime_type.lower() or manifest_raw.strip().startswith("<?xml") or "<MPD" in manifest_raw
+        is_dash = (
+            "mpd" in mime_type.lower()
+            or manifest_raw.strip().startswith("<?xml")
+            or "<MPD" in manifest_raw
+        )
 
         if is_dash:
             url = ""  # DASH needs segment downloading
@@ -248,11 +303,20 @@ class TidalClient:
 
         # try to find SegmentTimeline-based segments
         for adaptation_set in root.iter():
-            if adaptation_set.tag.endswith("AdaptationSet") or adaptation_set.tag == "AdaptationSet":
+            if (
+                adaptation_set.tag.endswith("AdaptationSet")
+                or adaptation_set.tag == "AdaptationSet"
+            ):
                 for rep in adaptation_set:
-                    if rep.tag.endswith("Representation") or rep.tag == "Representation":
+                    if (
+                        rep.tag.endswith("Representation")
+                        or rep.tag == "Representation"
+                    ):
                         for seg_tmpl in rep:
-                            if seg_tmpl.tag.endswith("SegmentTemplate") or seg_tmpl.tag == "SegmentTemplate":
+                            if (
+                                seg_tmpl.tag.endswith("SegmentTemplate")
+                                or seg_tmpl.tag == "SegmentTemplate"
+                            ):
                                 init = seg_tmpl.get("initialization", "")
                                 media = seg_tmpl.get("media", "")
                                 if init:
@@ -265,7 +329,9 @@ class TidalClient:
                                             d = int(s.get("d", 0))
                                             r = int(s.get("r", 0))
                                             for i in range(r + 1):
-                                                seg_url = media.replace("$Number$", str(len(urls))).replace("$Time$", str(st))
+                                                seg_url = media.replace(
+                                                    "$Number$", str(len(urls))
+                                                ).replace("$Time$", str(st))
                                                 urls.append(seg_url)
                                                 st += d
                                                 t = st
@@ -285,15 +351,25 @@ class TidalClient:
         artist_name = ""
         if "artist" in data:
             artist_obj = data["artist"]
-            artist_name = artist_obj.get("name", "") if isinstance(artist_obj, dict) else str(artist_obj)
+            artist_name = (
+                artist_obj.get("name", "")
+                if isinstance(artist_obj, dict)
+                else str(artist_obj)
+            )
         elif "artists" in data and data["artists"]:
             first = data["artists"][0]
-            artist_name = first.get("name", "") if isinstance(first, dict) else str(first)
+            artist_name = (
+                first.get("name", "") if isinstance(first, dict) else str(first)
+            )
 
         album_name = ""
         if "album" in data:
             album_obj = data["album"]
-            album_name = album_obj.get("title", "") if isinstance(album_obj, dict) else str(album_obj)
+            album_name = (
+                album_obj.get("title", "")
+                if isinstance(album_obj, dict)
+                else str(album_obj)
+            )
 
         return TidalTrack(
             id=int(data.get("id", 0)),
@@ -303,5 +379,10 @@ class TidalClient:
             duration=int(data.get("duration", 0)),
             track_number=int(data.get("trackNumber", 1)),
             disc_number=int(data.get("volumeNumber", data.get("discNumber", 1))),
-            album_id=int(data.get("album", {}).get("id", 0)) if isinstance(data.get("album"), dict) else 0,
+            album_id=(
+                int(data.get("album", {}).get("id", 0))
+                if isinstance(data.get("album"), dict)
+                else 0
+            ),
+            explicit=bool(data.get("explicit", False)),
         )

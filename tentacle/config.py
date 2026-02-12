@@ -36,6 +36,8 @@ class ServiceConfig:
 @dataclass
 class MatchingConfig:
     min_confidence: float = 0.80
+    prefer_explicit: bool = True
+    source_priority: list[str] = field(default_factory=lambda: ["tidal", "qobuz"])
 
 
 @dataclass
@@ -80,10 +82,14 @@ class Config:
                 scan_interval_minutes=int(service_d.get("scan_interval_minutes", 15)),
                 max_retries=int(service_d.get("max_retries", 3)),
                 rate_limit_delay=float(service_d.get("rate_limit_delay", 1.0)),
-                max_concurrent_downloads=int(service_d.get("max_concurrent_downloads", 25)),
+                max_concurrent_downloads=int(
+                    service_d.get("max_concurrent_downloads", 25)
+                ),
             ),
             matching=MatchingConfig(
                 min_confidence=float(matching_d.get("min_confidence", 0.80)),
+                prefer_explicit=bool(matching_d.get("prefer_explicit", True)),
+                source_priority=matching_d.get("source_priority", ["tidal", "qobuz"]),
             ),
         )
 
@@ -94,11 +100,37 @@ class Config:
             ("TENTACLE_LIDARR_API_KEY", self.lidarr, "api_key", str),
             ("TENTACLE_DOWNLOAD_PATH", self.download, "path", str),
             ("TENTACLE_DOWNLOAD_QUALITY", self.download, "quality", str),
-            ("TENTACLE_SERVICE_SCAN_INTERVAL_MINUTES", self.service, "scan_interval_minutes", int),
+            (
+                "TENTACLE_SERVICE_SCAN_INTERVAL_MINUTES",
+                self.service,
+                "scan_interval_minutes",
+                int,
+            ),
             ("TENTACLE_SERVICE_MAX_RETRIES", self.service, "max_retries", int),
-            ("TENTACLE_SERVICE_RATE_LIMIT_DELAY", self.service, "rate_limit_delay", float),
-            ("TENTACLE_SERVICE_MAX_CONCURRENT_DOWNLOADS", self.service, "max_concurrent_downloads", int),
-            ("TENTACLE_MATCHING_MIN_CONFIDENCE", self.matching, "min_confidence", float),
+            (
+                "TENTACLE_SERVICE_RATE_LIMIT_DELAY",
+                self.service,
+                "rate_limit_delay",
+                float,
+            ),
+            (
+                "TENTACLE_SERVICE_MAX_CONCURRENT_DOWNLOADS",
+                self.service,
+                "max_concurrent_downloads",
+                int,
+            ),
+            (
+                "TENTACLE_MATCHING_MIN_CONFIDENCE",
+                self.matching,
+                "min_confidence",
+                float,
+            ),
+            (
+                "TENTACLE_MATCHING_PREFER_EXPLICIT",
+                self.matching,
+                "prefer_explicit",
+                lambda v: v.lower() in ("1", "true", "yes"),
+            ),
         ]
         for env_key, obj, attr, typ in env_map:
             val = os.environ.get(env_key)
@@ -108,16 +140,29 @@ class Config:
 
     def _validate(self) -> None:
         if not self.lidarr.api_key:
-            raise ValueError("lidarr api_key is required (config or TENTACLE_LIDARR_API_KEY)")
+            raise ValueError(
+                "lidarr api_key is required (config or TENTACLE_LIDARR_API_KEY)"
+            )
         valid_qualities = {"HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"}
         if self.download.quality not in valid_qualities:
-            raise ValueError(f"quality must be one of {valid_qualities}, got {self.download.quality!r}")
+            raise ValueError(
+                f"quality must be one of {valid_qualities}, got {self.download.quality!r}"
+            )
+
+        valid_sources = {"tidal", "qobuz"}
+        for src in self.matching.source_priority:
+            if src not in valid_sources:
+                raise ValueError(
+                    f"source_priority contains invalid source {src!r}, must be one of {valid_sources}"
+                )
 
         # resolve and validate download path
         dl = Path(self.download.path).resolve()
         self.download.path = str(dl)
         if not dl.exists():
-            log.warning("download path does not exist, creating", extra={"path": str(dl)})
+            log.warning(
+                "download path does not exist, creating", extra={"path": str(dl)}
+            )
             try:
                 dl.mkdir(parents=True, exist_ok=True)
             except OSError as e:

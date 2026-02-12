@@ -14,3 +14,7 @@ service:
 
 matching:
   min_confidence: 0.80
+  prefer_explicit: true  # prefer explicit versions over clean when available
+  source_priority:       # search order — first source is primary, rest are fallback
+    - tidal
+    - qobuz
