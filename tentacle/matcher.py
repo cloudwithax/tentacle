@@ -1,4 +1,4 @@
-"""track matching between lidarr wants and tidal/qobuz search results."""
+"""track matching between lidarr wants and tidal search results."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from typing import Any
 
 from thefuzz import fuzz
 
-from tentacle.qobuz import QobuzClient, QobuzTrack
 from tentacle.tidal import TidalClient, TidalTrack
 
 log = logging.getLogger(__name__)
@@ -43,7 +42,7 @@ class UnifiedTrack:
     track_number: int
     disc_number: int
     album_id: str | int
-    source: str  # "tidal" or "qobuz"
+    source: str  # "tidal"
     explicit: bool = False
 
 
@@ -58,21 +57,6 @@ def from_tidal(t: TidalTrack) -> UnifiedTrack:
         disc_number=t.disc_number,
         album_id=t.album_id,
         source="tidal",
-        explicit=t.explicit,
-    )
-
-
-def from_qobuz(t: QobuzTrack) -> UnifiedTrack:
-    return UnifiedTrack(
-        id=t.id,
-        title=t.title,
-        artist=t.artist,
-        album=t.album,
-        duration=t.duration,
-        track_number=t.track_number,
-        disc_number=t.disc_number,
-        album_id=t.album_id,
-        source="qobuz",
         explicit=t.explicit,
     )
 
@@ -207,13 +191,12 @@ async def find_best_match(
     album_title: str,
     duration: int = 0,
     min_confidence: float = 0.80,
-    qobuz: QobuzClient | None = None,
     prefer_explicit: bool = True,
     source_priority: list[str] | None = None,
 ) -> MatchResult | None:
-    """search tidal (and optionally qobuz) and find the best matching track."""
+    """search tidal and find the best matching track."""
     if source_priority is None:
-        source_priority = ["tidal", "qobuz"]
+        source_priority = ["tidal"]
 
     queries = [
         f"{artist_name} {track_title}",
@@ -227,8 +210,6 @@ async def find_best_match(
     for src in source_priority:
         if src == "tidal":
             sources.append(("tidal", tidal))
-        elif src == "qobuz" and qobuz is not None:
-            sources.append(("qobuz", qobuz))
 
     for src_name, client in sources:
         for query in queries:
@@ -240,10 +221,6 @@ async def find_best_match(
                             track = TidalClient.parse_tidal_track(r)
                             if track.id > 0:
                                 all_candidates.append(from_tidal(track))
-                        else:
-                            track = QobuzClient.parse_qobuz_track(r)
-                            if track.id > 0:
-                                all_candidates.append(from_qobuz(track))
                     except (KeyError, TypeError, ValueError):
                         continue
             except Exception as e:
@@ -315,7 +292,6 @@ async def match_album_tracks(
     album_title: str,
     lidarr_tracks: list[dict[str, Any]],
     min_confidence: float = 0.80,
-    qobuz: QobuzClient | None = None,
     prefer_explicit: bool = True,
     source_priority: list[str] | None = None,
 ) -> dict[int, MatchResult]:
@@ -324,7 +300,7 @@ async def match_album_tracks(
     returns dict of lidarr_track_id -> MatchResult.
     """
     if source_priority is None:
-        source_priority = ["tidal", "qobuz"]
+        source_priority = ["tidal"]
 
     matches: dict[int, MatchResult] = {}
 
@@ -335,7 +311,6 @@ async def match_album_tracks(
         album_title,
         lidarr_tracks,
         min_confidence,
-        qobuz=qobuz,
         prefer_explicit=prefer_explicit,
         source_priority=source_priority,
     )
@@ -361,7 +336,6 @@ async def match_album_tracks(
             album_title,
             duration=duration,
             min_confidence=min_confidence,
-            qobuz=qobuz,
             prefer_explicit=prefer_explicit,
             source_priority=source_priority,
         )
@@ -377,17 +351,15 @@ async def _try_album_match(
     album_title: str,
     lidarr_tracks: list[dict[str, Any]],
     min_confidence: float,
-    qobuz: QobuzClient | None = None,
     prefer_explicit: bool = True,
     source_priority: list[str] | None = None,
 ) -> dict[int, MatchResult] | None:
-    """try to find and match a whole album on tidal and/or qobuz.
+    """try to find and match a whole album on tidal.
 
-    searches sources in priority order (default: tidal first, qobuz fallback).
     prefers explicit versions when prefer_explicit is True.
     """
     if source_priority is None:
-        source_priority = ["tidal", "qobuz"]
+        source_priority = ["tidal"]
 
     all_album_tracks: list[UnifiedTrack] = []
 
@@ -395,8 +367,6 @@ async def _try_album_match(
     for src in source_priority:
         if src == "tidal":
             await _search_tidal_album(tidal, artist_name, album_title, all_album_tracks)
-        elif src == "qobuz" and qobuz is not None:
-            await _search_qobuz_album(qobuz, artist_name, album_title, all_album_tracks)
 
     if not all_album_tracks:
         return None
@@ -499,65 +469,4 @@ async def _search_tidal_album(
                 log.warning(
                     "failed to fetch tidal album",
                     extra={"album_id": album_id, "error": str(e)},
-                )
-
-
-async def _search_qobuz_album(
-    qobuz: QobuzClient,
-    artist_name: str,
-    album_title: str,
-    out: list[UnifiedTrack],
-) -> None:
-    """search qobuz for an album and append parsed tracks to out."""
-    try:
-        qobuz_results = await qobuz.search_albums(f"{artist_name} {album_title}")
-    except Exception as e:
-        log.warning("qobuz album search failed", extra={"error": str(e)})
-        return
-
-    best_q_album: dict[str, Any] | None = None
-    best_q_score = 0.0
-
-    for album in (qobuz_results or [])[:5]:
-        a_title = album.get("title", "")
-        a_artist = ""
-        if "artist" in album:
-            art = album["artist"]
-            a_artist = art.get("name", "") if isinstance(art, dict) else str(art)
-        elif "artists" in album and album["artists"]:
-            first = album["artists"][0]
-            a_artist = first.get("name", "") if isinstance(first, dict) else str(first)
-
-        t_sim = title_similarity(album_title, a_title)
-        a_sim = artist_similarity(artist_name, a_artist)
-        score = t_sim * 0.6 + a_sim * 0.4
-
-        if score > best_q_score:
-            best_q_score = score
-            best_q_album = album
-
-    if best_q_album and best_q_score >= 0.7:
-        q_album_id = best_q_album.get("id")
-        if q_album_id:
-            log.info(
-                "found qobuz album match",
-                extra={
-                    "album": best_q_album.get("title", ""),
-                    "score": f"{best_q_score:.3f}",
-                },
-            )
-            try:
-                album_data = await qobuz.get_album(str(q_album_id))
-                qobuz_tracks_raw = album_data.get("tracks", {})
-                if isinstance(qobuz_tracks_raw, dict):
-                    qobuz_tracks_raw = qobuz_tracks_raw.get("items", [])
-                for t in qobuz_tracks_raw:
-                    try:
-                        out.append(from_qobuz(QobuzClient.parse_qobuz_track(t)))
-                    except (KeyError, TypeError, ValueError):
-                        continue
-            except Exception as e:
-                log.warning(
-                    "failed to fetch qobuz album",
-                    extra={"album_id": q_album_id, "error": str(e)},
                 )

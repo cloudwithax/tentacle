@@ -18,7 +18,6 @@ from tentacle.downloader import (
 )
 from tentacle.lidarr import LidarrClient
 from tentacle.matcher import UnifiedTrack, match_album_tracks
-from tentacle.qobuz import QobuzClient
 from tentacle.tidal import TidalClient
 
 log = logging.getLogger(__name__)
@@ -66,10 +65,6 @@ class TentacleService:
             max_retries=config.service.max_retries,
             rate_limit_delay=config.service.rate_limit_delay,
         )
-        self.qobuz = QobuzClient(
-            max_retries=config.service.max_retries,
-            rate_limit_delay=config.service.rate_limit_delay,
-        )
         self._shutdown = asyncio.Event()
         self._state_path = Path(config.download.path) / STATE_FILE
         self._attempted: set[str] = set()
@@ -77,7 +72,6 @@ class TentacleService:
         self._dl_semaphore = asyncio.Semaphore(config.service.max_concurrent_downloads)
         self._rate_limiters: dict[str, _TokenBucket] = {
             "tidal": _TokenBucket(rate=5.0, burst=8),  # 5 req/s, burst of 8
-            "qobuz": _TokenBucket(rate=3.0, burst=5),  # 3 req/s, burst of 5
         }
 
     def _load_state(self) -> None:
@@ -132,7 +126,7 @@ class TentacleService:
 
         # rank mirrors by latency (pacman-style)
         log.info("ranking mirrors...")
-        await asyncio.gather(self.tidal.rank(), self.qobuz.rank())
+        await self.tidal.rank()
 
         try:
             while not self._shutdown.is_set():
@@ -160,7 +154,6 @@ class TentacleService:
             self._save_state()
             await self.lidarr.close()
             await self.tidal.close()
-            await self.qobuz.close()
             log.info("tentacle service stopped")
 
     def _handle_shutdown(self) -> None:
@@ -270,7 +263,6 @@ class TentacleService:
             album_title,
             pending_tracks,
             min_confidence=self.config.matching.min_confidence,
-            qobuz=self.qobuz,
             prefer_explicit=self.config.matching.prefer_explicit,
             source_priority=self.config.matching.source_priority,
         )
@@ -412,7 +404,6 @@ class TentacleService:
                     track,
                     dest,
                     tidal=self.tidal,
-                    qobuz=self.qobuz,
                     quality=self.config.download.quality,
                     metadata=metadata,
                     max_retries=self.config.service.max_retries,
@@ -449,8 +440,6 @@ class TentacleService:
 
         if track.source == "tidal":
             metadata = await self._enrich_from_tidal(track, metadata)
-        elif track.source == "qobuz":
-            metadata = await self._enrich_from_qobuz(track, metadata)
 
         return metadata
 
@@ -492,50 +481,6 @@ class TentacleService:
                 metadata["lyrics"] = lyrics_data["lyrics"]
             if lyrics_data.get("subtitles"):
                 metadata["subtitles"] = lyrics_data["subtitles"]
-
-        return metadata
-
-    async def _enrich_from_qobuz(
-        self,
-        track: UnifiedTrack,
-        metadata: dict[str, Any],
-    ) -> dict[str, Any]:
-        """pull rich metadata and cover art from qobuz (no lyrics endpoint available)."""
-
-        # try to get album data for richer metadata + cover
-        if track.album_id:
-            try:
-                album_data = await self.qobuz.get_album(str(track.album_id))
-                if album_data:
-                    tracks_list = album_data.get("tracks", album_data.get("items", []))
-                    # find our track in the album for per-track metadata
-                    for t in tracks_list if isinstance(tracks_list, list) else []:
-                        t_obj = t.get("item", t) if isinstance(t, dict) else t
-                        if isinstance(t_obj, dict) and t_obj.get("id") == track.id:
-                            rich = QobuzClient.extract_rich_metadata(t_obj)
-                            metadata.update(rich)
-                            break
-                    else:
-                        # still grab album-level metadata
-                        rich = QobuzClient.extract_rich_metadata({"album": album_data})
-                        metadata.update(rich)
-
-                    # cover art
-                    cover_url = metadata.get("cover_url", "")
-                    if not cover_url:
-                        img = album_data.get("image", {})
-                        if isinstance(img, dict):
-                            for sz in ("mega", "extralarge", "large", "medium"):
-                                if sz in img and img[sz]:
-                                    cover_url = img[sz]
-                                    break
-                    if cover_url:
-                        cover_data = await _fetch_cover_art(cover_url)
-                        if cover_data:
-                            metadata["cover_data"] = cover_data
-                        metadata.pop("cover_url", None)
-            except Exception as e:
-                log.debug("failed to enrich from qobuz album", extra={"error": str(e)})
 
         return metadata
 

@@ -37,7 +37,7 @@ class ServiceConfig:
 class MatchingConfig:
     min_confidence: float = 0.80
     prefer_explicit: bool = True
-    source_priority: list[str] = field(default_factory=lambda: ["tidal", "qobuz"])
+    source_priority: list[str] = field(default_factory=lambda: ["tidal"])
 
 
 @dataclass
@@ -89,7 +89,7 @@ class Config:
             matching=MatchingConfig(
                 min_confidence=float(matching_d.get("min_confidence", 0.80)),
                 prefer_explicit=bool(matching_d.get("prefer_explicit", True)),
-                source_priority=matching_d.get("source_priority", ["tidal", "qobuz"]),
+                source_priority=matching_d.get("source_priority", ["tidal"]),
             ),
         )
 
@@ -149,7 +149,7 @@ class Config:
                 f"quality must be one of {valid_qualities}, got {self.download.quality!r}"
             )
 
-        valid_sources = {"tidal", "qobuz"}
+        valid_sources = {"tidal"}
         for src in self.matching.source_priority:
             if src not in valid_sources:
                 raise ValueError(

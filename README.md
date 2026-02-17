@@ -1,8 +1,8 @@
 # tentacle
 
-automated service for downloading wanted lidarr tracks from multiple sources (tidal + qobuz) via public apis.
+automated service for downloading wanted lidarr tracks from tidal via public apis.
 
-polls lidarr for wanted/missing albums, fuzzy-matches tracks against tidal (13 hifi-api instances) and qobuz (squid.wtf), picks the best match across both, downloads to the correct artist/album directory structure, embeds metadata, and triggers a lidarr rescan.
+polls lidarr for wanted/missing albums, fuzzy-matches tracks against tidal (13 hifi-api instances), picks the best match, downloads to the correct artist/album directory structure, embeds metadata, and triggers a lidarr rescan.
 
 ## setup
 
@@ -68,9 +68,9 @@ matching:
 
 1. polls lidarr's wanted/missing endpoint
 2. for each wanted album, fetches track list
-3. searches **tidal** (13 hifi-api instances) and **qobuz** (squid.wtf) for matching tracks using fuzzy matching
-4. picks the best match across both sources by confidence score
-5. downloads matched tracks (tidal: direct FLAC or DASH manifests; qobuz: direct stream URLs)
+3. searches **tidal** (13 hifi-api instances) for matching tracks using fuzzy matching
+4. picks the best match by confidence score
+5. downloads matched tracks (direct FLAC or DASH manifests)
 6. embeds metadata (title, artist, album, track/disc number) via mutagen
 7. triggers lidarr rescan + rename
 8. tracks attempted downloads in a state file to avoid re-processing
@@ -82,4 +82,3 @@ uses weighted random selection across api instances with automatic failover. han
 | source | instances | quality | format |
 |--------|-----------|---------|--------|
 | tidal | 13 hifi-api instances | up to 24-bit/192kHz | FLAC (direct or DASH) |
-| qobuz | qobuz.squid.wtf | up to 24-bit/192kHz | FLAC (direct URL) |

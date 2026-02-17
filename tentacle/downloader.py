@@ -1,4 +1,4 @@
-"""download manager for tidal and qobuz tracks with metadata embedding."""
+"""download manager for tidal tracks with metadata embedding."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from mutagen.flac import FLAC, Picture
 from mutagen.mp4 import MP4
 
 from tentacle.matcher import UnifiedTrack
-from tentacle.qobuz import QobuzClient
 from tentacle.tidal import StreamInfo, TidalClient
 
 log = logging.getLogger(__name__)
@@ -123,50 +122,19 @@ async def download_track(
     return dest_path
 
 
-async def download_qobuz_track(
-    qobuz: QobuzClient,
-    track: UnifiedTrack,
-    dest_path: Path,
-    quality: str = "LOSSLESS",
-    metadata: dict[str, Any] | None = None,
-    max_retries: int = 3,
-) -> Path:
-    """download a track from qobuz using direct stream URL."""
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-
-    log.info("downloading from qobuz", extra={
-        "track_id": track.id, "title": track.title, "dest": str(dest_path),
-    })
-
-    url = await qobuz.get_stream_url(track.id, quality=quality)
-    audio_data = await _download_direct(url, max_retries)
-
-    dest_path.write_bytes(audio_data)
-    log.info("track downloaded", extra={"path": str(dest_path), "size_mb": f"{len(audio_data) / 1024 / 1024:.1f}"})
-
-    if metadata:
-        _embed_metadata(dest_path, metadata)
-
-    return dest_path
-
-
 async def download_from_source(
     track: UnifiedTrack,
     dest_path: Path,
     tidal: TidalClient | None = None,
-    qobuz: QobuzClient | None = None,
     quality: str = "LOSSLESS",
     metadata: dict[str, Any] | None = None,
     max_retries: int = 3,
 ) -> Path:
-    """download a track from the appropriate source."""
-    if track.source == "qobuz" and qobuz:
-        return await download_qobuz_track(qobuz, track, dest_path, quality, metadata, max_retries)
-    elif track.source == "tidal" and tidal:
+    """download a track from tidal."""
+    if track.source == "tidal" and tidal:
         stream = await tidal.get_track_stream(track.id, quality=quality)
         return await download_track(tidal, track, stream, dest_path, metadata, max_retries)
-    else:
-        raise ValueError(f"no client available for source={track.source}")
+    raise ValueError(f"no client available for source={track.source}")
 
 
 def get_extension_for_quality(quality: str) -> str:
