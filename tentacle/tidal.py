@@ -133,7 +133,11 @@ class TidalClient:
                     continue
 
                 resp.raise_for_status()
-                return resp.json()
+                body = resp.json()
+                # unwrap the {version, data: {...}} envelope if present
+                if isinstance(body, dict) and "data" in body and "version" in body:
+                    body = body["data"]
+                return body
 
             except httpx.HTTPStatusError as e:
                 log.error(
@@ -167,29 +171,20 @@ class TidalClient:
 
     @staticmethod
     def _extract_items(data: Any, kind: str = "tracks") -> list[dict[str, Any]]:
-        """unwrap the nested response format.
+        """extract items list from already-unwrapped response data.
 
-        handles both flat ({data: {items: [...]}}) and categorized
-        ({data: {tracks: {items: [...]}, albums: {items: []}}}) responses.
+        handles flat ({items: [...]}) and categorized
+        ({tracks: {items: [...]}, albums: {items: []}}) shapes.
         """
         if isinstance(data, list):
             return data
         if not isinstance(data, dict):
             return []
-
-        inner = data.get("data", data)
-        if not isinstance(inner, dict):
-            return inner if isinstance(inner, list) else []
-
-        # flat: {items: [...]}
-        if "items" in inner:
-            return inner["items"]
-
-        # categorized: {tracks: {items: [...]}, albums: {items: []}, ...}
-        bucket = inner.get(kind, {})
+        if "items" in data:
+            return data["items"]
+        bucket = data.get(kind, {})
         if isinstance(bucket, dict) and "items" in bucket:
             return bucket["items"]
-
         return []
 
     async def search_tracks(self, query: str) -> list[dict[str, Any]]:
