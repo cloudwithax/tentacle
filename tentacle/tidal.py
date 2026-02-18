@@ -165,40 +165,49 @@ class TidalClient:
 
         raise ConnectionError(f"all {self.max_retries} attempts failed") from last_exc
 
+    @staticmethod
+    def _extract_items(data: Any, kind: str = "tracks") -> list[dict[str, Any]]:
+        """unwrap the nested response format.
+
+        handles both flat ({data: {items: [...]}}) and categorized
+        ({data: {tracks: {items: [...]}, albums: {items: []}}}) responses.
+        """
+        if isinstance(data, list):
+            return data
+        if not isinstance(data, dict):
+            return []
+
+        inner = data.get("data", data)
+        if not isinstance(inner, dict):
+            return inner if isinstance(inner, list) else []
+
+        # flat: {items: [...]}
+        if "items" in inner:
+            return inner["items"]
+
+        # categorized: {tracks: {items: [...]}, albums: {items: []}, ...}
+        bucket = inner.get(kind, {})
+        if isinstance(bucket, dict) and "items" in bucket:
+            return bucket["items"]
+
+        return []
+
     async def search_tracks(self, query: str) -> list[dict[str, Any]]:
         """search for tracks by query string."""
         log.info("searching tracks", extra={"query": query})
         data = await self._request("/search/", params={"s": query})
-        return (
-            data
-            if isinstance(data, list)
-            else data.get(
-                "items", data.get("tracks", [data] if isinstance(data, dict) else [])
-            )
-        )
+        return self._extract_items(data)
 
     async def search_albums(self, query: str) -> list[dict[str, Any]]:
         """search for albums."""
         log.info("searching albums", extra={"query": query})
         data = await self._request("/search/", params={"al": query})
-        return (
-            data
-            if isinstance(data, list)
-            else data.get(
-                "items", data.get("albums", [data] if isinstance(data, dict) else [])
-            )
-        )
+        return self._extract_items(data, kind="albums")
 
     async def search_artists(self, query: str) -> list[dict[str, Any]]:
         """search for artists."""
         data = await self._request("/search/", params={"a": query})
-        return (
-            data
-            if isinstance(data, list)
-            else data.get(
-                "items", data.get("artists", [data] if isinstance(data, dict) else [])
-            )
-        )
+        return self._extract_items(data, kind="artists")
 
     async def get_track_stream(
         self, track_id: int, quality: str = "LOSSLESS"
