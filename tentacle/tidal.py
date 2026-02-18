@@ -103,11 +103,20 @@ class TidalClient:
             self._pool.demote(url)
 
     async def _request(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        """make a request with retry, failover, and rate limit handling."""
+        """make a request, trying every alive instance before giving up."""
         last_exc: Exception | None = None
+        tried: set[str] = set()
+        pool_size = len(self._pool) if self._pool else len(INSTANCES)
+        max_attempts = max(self.max_retries, pool_size)
 
-        for attempt in range(self.max_retries):
+        for attempt in range(max_attempts):
             instance = self._pick_instance()
+
+            # if we've cycled through every instance, stop
+            if instance in tried and len(tried) >= pool_size:
+                break
+            tried.add(instance)
+
             url = f"{instance}{path}"
 
             try:
@@ -115,7 +124,7 @@ class TidalClient:
                 resp = await client.get(url, params=params)
 
                 if resp.status_code == 429:
-                    delay = self.rate_limit_delay * (2**attempt)
+                    delay = self.rate_limit_delay * (2 ** min(attempt, 4))
                     log.warning(
                         "rate limited, backing off",
                         extra={
@@ -163,11 +172,9 @@ class TidalClient:
                 self._demote_instance(instance)
                 last_exc = e
 
-            if attempt < self.max_retries - 1:
-                delay = self.rate_limit_delay * (2**attempt)
-                await asyncio.sleep(delay)
-
-        raise ConnectionError(f"all {self.max_retries} attempts failed") from last_exc
+        raise ConnectionError(
+            f"all {len(tried)}/{pool_size} instances exhausted"
+        ) from last_exc
 
     @staticmethod
     def _extract_items(data: Any, kind: str = "tracks") -> list[dict[str, Any]]:
