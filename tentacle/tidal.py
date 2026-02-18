@@ -146,6 +146,8 @@ class TidalClient:
                 # unwrap the {version, data: {...}} envelope if present
                 if isinstance(body, dict) and "data" in body and "version" in body:
                     body = body["data"]
+                if self._pool:
+                    self._pool.record_success(instance)
                 return body
 
             except httpx.HTTPStatusError as e:

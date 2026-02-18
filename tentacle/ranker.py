@@ -112,38 +112,48 @@ async def rank_mirrors(
 
 
 class RankedMirrorPool:
-    """thread-safe ranked mirror pool with runtime demotion on failure."""
+    """mirror pool that learns from success — instances with more successful
+    requests float to the top, failures sink them."""
 
     def __init__(self, ranked: list[MirrorResult]) -> None:
-        self._ranked = [r for r in ranked if r.alive] or ranked  # fallback to all if none alive
+        self._ranked = [r for r in ranked if r.alive] or ranked
         self._idx = 0
         self._demoted: set[str] = set()
+        self._successes: dict[str, int] = {r.url: 0 for r in self._ranked}
+        self._failures: dict[str, int] = {r.url: 0 for r in self._ranked}
 
     @property
     def mirrors(self) -> list[str]:
-        """return mirrors in ranked order, demoted ones at the end."""
+        """return mirrors sorted by success rate, demoted ones at the end."""
         good = [r.url for r in self._ranked if r.url not in self._demoted]
         bad = [r.url for r in self._ranked if r.url in self._demoted]
+        # sort good mirrors by success count descending; ties broken by original latency order
+        good.sort(key=lambda u: self._successes.get(u, 0), reverse=True)
         return good + bad
 
     def pick(self) -> str:
-        """pick the next mirror, cycling through ranked order."""
+        """pick the next mirror, preferring those with most successes."""
         pool = self.mirrors
         if not pool:
-            # shouldn't happen but safety valve
             return self._ranked[0].url
         url = pool[self._idx % len(pool)]
         self._idx += 1
         return url
 
+    def record_success(self, url: str) -> None:
+        """record a successful request for an instance."""
+        self._successes[url] = self._successes.get(url, 0) + 1
+
     def demote(self, url: str) -> None:
-        """push a failing mirror to the back of the line."""
+        """record a failure and push the mirror to the back if it's unreliable."""
+        self._failures[url] = self._failures.get(url, 0) + 1
         self._demoted.add(url)
-        log.debug("demoted mirror", extra={"url": url})
+        log.debug("demoted mirror", extra={"url": url, "failures": self._failures[url]})
 
     def reset(self) -> None:
-        """reset demotions (e.g. between cycles)."""
+        """reset demotions but keep success history."""
         self._demoted.clear()
+        self._failures.clear()
         self._idx = 0
 
     def best(self) -> str:
@@ -155,4 +165,6 @@ class RankedMirrorPool:
 
     def __repr__(self) -> str:
         alive = sum(1 for r in self._ranked if r.alive)
-        return f"RankedMirrorPool({alive} alive, best={self.best()})"
+        top = self.best()
+        wins = self._successes.get(top, 0)
+        return f"RankedMirrorPool({alive} alive, best={top} [{wins} hits])"
