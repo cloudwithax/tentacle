@@ -156,6 +156,29 @@ class Config:
                     f"source_priority contains invalid source {src!r}, must be one of {valid_sources}"
                 )
 
+    def save(self, path: str | Path) -> None:
+        """write current config to a yaml file."""
+        data = {
+            "lidarr": {"url": self.lidarr.url, "api_key": self.lidarr.api_key},
+            "download": {"path": self.download.path, "quality": self.download.quality},
+            "service": {
+                "scan_interval_minutes": self.service.scan_interval_minutes,
+                "max_retries": self.service.max_retries,
+                "rate_limit_delay": self.service.rate_limit_delay,
+                "max_concurrent_downloads": self.service.max_concurrent_downloads,
+            },
+            "matching": {
+                "min_confidence": self.matching.min_confidence,
+                "prefer_explicit": self.matching.prefer_explicit,
+                "source_priority": self.matching.source_priority,
+            },
+        }
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w") as f:
+            yaml.dump(data, f, default_flow_style=False)
+        log.info("wrote config file", extra={"path": str(p)})
+
         # resolve and validate download path
         dl = Path(self.download.path).resolve()
         self.download.path = str(dl)

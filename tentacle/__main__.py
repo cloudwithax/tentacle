@@ -52,14 +52,21 @@ def main() -> None:
         from pathlib import Path
         config_path = str(Path(config_path).resolve())
         if not Path(config_path).exists():
-            logging.error("config file not found: %s", config_path)
-            sys.exit(1)
+            import os
+            if os.environ.get("TENTACLE_LIDARR_API_KEY"):
+                logging.info("config file missing, regenerating from env vars: %s", config_path)
+            else:
+                logging.error("config file not found: %s", config_path)
+                sys.exit(1)
 
     try:
         config = Config.load(config_path)
     except ValueError as e:
         logging.error("config error: %s", e)
         sys.exit(1)
+
+    if config_path and not Path(config_path).exists():
+        config.save(config_path)
 
     service = TentacleService(config)
     asyncio.run(service.run(once=args.once))
